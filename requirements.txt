@@ -1,0 +1,11 @@
+pandas
+geopandas
+pyogrio
+shapely
+pytest
+streamlit
+plotly
+statsmodels
+
+folium>=0.16
+streamlit-folium>=0.25

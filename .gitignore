@@ -1,0 +1,11 @@
+﻿.vs/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+anaconda_projects/
+*.sqlite
+*.vsidx
+.env
+.streamlit/secrets.toml

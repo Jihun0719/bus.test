@@ -1,0 +1,295 @@
+"""E 담당: 자치구별 버스 인프라 지도와 선택 자치구 정류소 표시."""
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from shapely.geometry import mapping
+
+
+class Visualizer:
+    """C 담당 객체 및 D 담당 계산 메서드를 활용하는 지도 시각화 클래스."""
+
+    METRICS = {
+        "equity_score": ("종합 형평성 점수", "점"),
+        "stop_density": ("면적당 정류소 수", "개/㎢"),
+        "stops_per_population": ("생활인구 1만 명당 정류소 수", "개/1만 명"),
+    }
+    # 낮은 값은 따뜻한 코랄, 높은 값은 선명한 그린으로 구별합니다.
+    COLORSCALE = [
+        [0.00, "#f28a68"],
+        [0.20, "#f7b879"],
+        [0.40, "#ffe4a8"],
+        [0.60, "#cde98a"],
+        [0.80, "#83c94b"],
+        [1.00, "#16834a"],
+    ]
+
+    def __init__(self, districts: Mapping[str, Any], bus_stops: Sequence[Any]):
+        if not districts:
+            raise ValueError("자치구 객체가 비어 있습니다.")
+        self.districts = districts
+        self.bus_stops = bus_stops
+
+    def prepare_map_data(self) -> pd.DataFrame:
+        """지도와 향후 F 담당 차트에서 공통으로 사용하는 지표 표."""
+        items = list(self.districts.values())
+        densities = [d.calculate_stop_density() for d in items]
+        per_population = [d.calculate_stops_per_population() for d in items]
+        d_min, d_max = min(densities), max(densities)
+        p_min, p_max = min(per_population), max(per_population)
+        rows = []
+        for d, den, pop in zip(items, densities, per_population):
+            if d.geometry is None or d.geometry.is_empty:
+                raise ValueError(f"{d.district_name}: 지도 경계가 없습니다.")
+            rows.append({
+                "district_code": d.district_code,
+                "district_name": d.district_name,
+                "geometry": d.geometry,
+                "area_km2": d.area,
+                "living_population": d.living_population,
+                "bus_stop_count": d.bus_stop_count,
+                "population_date": d.population_date,
+                "stop_density": den,
+                "stops_per_population": pop,
+                "equity_score": d.calculate_equity_score(d_min, d_max, p_min, p_max),
+            })
+        return pd.DataFrame(rows).sort_values("district_code").reset_index(drop=True)
+
+    def create_map(
+        self,
+        metric: str = "equity_score",
+        show_bus_stops: bool = False,
+        selected_district_code: str | None = None,
+    ) -> go.Figure:
+        """지도 생성. 선택 자치구가 있으면 해당 구로 확대하고 정류소를 제한합니다."""
+        if metric not in self.METRICS:
+            raise ValueError(f"지원하지 않는 지표: {metric}")
+        df = self.prepare_map_data()
+        if selected_district_code is not None:
+            selected_district_code = str(selected_district_code)
+            if selected_district_code not in set(df["district_code"]):
+                raise ValueError(f"존재하지 않는 자치구 코드: {selected_district_code}")
+
+        label, unit = self.METRICS[metric]
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"district_code": row.district_code},
+                    "geometry": mapping(row.geometry),
+                }
+                for row in df.itertuples(index=False)
+            ],
+        }
+        customdata = df[[
+            "district_name", "bus_stop_count", "stop_density",
+            "stops_per_population", "equity_score",
+        ]].to_numpy()
+        fig = go.Figure(go.Choropleth(
+            geojson=geojson,
+            locations=df["district_code"],
+            featureidkey="properties.district_code",
+            z=df[metric],
+            zmin=0 if metric == "equity_score" else float(df[metric].min()),
+            zmax=100 if metric == "equity_score" else float(df[metric].max()),
+            colorscale=self.COLORSCALE,
+            marker_line_color="#ffffff",
+            marker_line_width=1.2,
+            colorbar=dict(title=unit, thickness=17, len=0.76),
+            customdata=customdata,
+            selectedpoints=None,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "정류소: %{customdata[1]:,.0f}개<br>"
+                "면적당 정류소: %{customdata[2]:.2f}개/㎢<br>"
+                "생활인구 1만 명당: %{customdata[3]:.2f}개<br>"
+                "종합 점수: %{customdata[4]:.1f}점"
+                "<extra></extra>"
+            ),
+        ))
+
+        if show_bus_stops:
+            stops = self.bus_stops
+            if selected_district_code is not None:
+                stops = [s for s in stops if s.district_code == selected_district_code]
+            if stops:
+                fig.add_trace(go.Scattergeo(
+                    lon=[s.longitude for s in stops],
+                    lat=[s.latitude for s in stops],
+                    text=[f"{s.stop_name} ({s.stop_id})" for s in stops],
+                    mode="markers",
+                    marker=dict(size=5 if selected_district_code else 2.5,
+                                color="#ec3c34", opacity=0.85 if selected_district_code else 0.5,
+                                line=dict(width=0.5 if selected_district_code else 0, color="white")),
+                    name="버스정류소",
+                    hovertemplate="%{text}<extra>버스정류소</extra>",
+                ))
+
+        if selected_district_code is None:
+            fig.update_geos(fitbounds="locations", visible=False, projection_type="mercator")
+        else:
+            geometry = df.loc[df["district_code"] == selected_district_code, "geometry"].iloc[0]
+            minx, miny, maxx, maxy = geometry.bounds
+            padx = max((maxx - minx) * 0.12, 0.006)
+            pady = max((maxy - miny) * 0.12, 0.006)
+            fig.update_geos(
+                visible=False,
+                projection_type="mercator",
+                lonaxis_range=[minx - padx, maxx + padx],
+                lataxis_range=[miny - pady, maxy + pady],
+            )
+
+        selected_name = ""
+        if selected_district_code is not None:
+            selected_name = df.loc[df["district_code"] == selected_district_code, "district_name"].iloc[0]
+        fig.update_layout(
+            title="",
+            margin=dict(l=0, r=0, t=8, b=0),
+            height=520,
+            paper_bgcolor="#ffffff",
+            plot_bgcolor="#ffffff",
+            clickmode="event+select",
+            uirevision=f"{metric}-{selected_district_code or 'seoul'}",
+        )
+        return fig
+
+    # ==================== F 담당 영역 ====================
+    def create_bar_chart(self, selected_district_code: str | None = None) -> go.Figure:
+        """
+        F-1: 자치구별 종합 형평성 점수 비교 막대그래프
+        """
+        df = self.prepare_map_data().sort_values("equity_score", ascending=True)
+
+        if selected_district_code is not None:
+            selected_district_code = str(selected_district_code)
+            colors = [
+                "#1D4ED8" if str(code) == selected_district_code else "#E2E8F0"
+                for code in df["district_code"]
+            ]
+        else:
+            colors = ["#64748B"] * len(df)
+
+        fig = go.Figure(
+            go.Bar(
+                x=df["equity_score"],
+                y=df["district_name"],
+                orientation="h",
+                marker_color=colors,
+                hovertemplate="<b>%{y}</b><br>형평성 점수: %{x:.1f}점<extra></extra>",
+            )
+        )
+
+        fig.update_layout(
+            title="",
+            xaxis_title="형평성 점수 (점)",
+            yaxis_title="",
+            template="plotly_white",
+            height=650,
+            margin=dict(l=70, r=22, t=12, b=42),
+            font=dict(family="Arial, sans-serif", color="#234332", size=12),
+            xaxis=dict(showgrid=True, gridcolor="#edf2e9", zeroline=False, range=[0, 100]),
+            yaxis=dict(tickfont=dict(size=11, color="#385846"), dtick=1, showgrid=False),
+            paper_bgcolor="#ffffff",
+            plot_bgcolor="#ffffff",
+        )
+        return fig
+
+    def create_scatter_plot(self, selected_district_code: str | None = None) -> go.Figure:
+        """
+        F-2: 인구수 대비 버스 정류소 수 관계 산점도 및 추세선
+        """
+        df = self.prepare_map_data()
+
+        fig = px.scatter(
+            df,
+            x="living_population",
+            y="bus_stop_count",
+            hover_name="district_name",
+            text="district_name",
+            title="인구수 대비 버스 정류소 수 관계",
+            labels={
+                "living_population": "생활인구 수 (명)",
+                "bus_stop_count": "버스 정류소 수 (개)",
+            },
+            trendline="ols",
+        )
+
+        fig.update_traces(
+            textposition="top center",
+            textfont=dict(size=10),
+            marker=dict(size=10, color="#16834a", opacity=0.82, line=dict(width=1, color="#ffffff")),
+            selector=dict(mode="markers+text")
+        )
+
+        if selected_district_code is not None:
+            selected_district_code = str(selected_district_code)
+            if selected_district_code in set(df["district_code"].astype(str)):
+                selected_row = df[df["district_code"].astype(str) == selected_district_code].iloc[0]
+                fig.add_trace(
+                    go.Scatter(
+                        x=[selected_row["living_population"]],
+                        y=[selected_row["bus_stop_count"]],
+                        mode="markers",
+                        marker=dict(size=15, color="#1D4ED8", symbol="star"),
+                        name="선택 자치구",
+                        hovertemplate=f"<b>{selected_row['district_name']} (선택됨)</b><br>생활인구: %{{x:,.0f}}명<br>정류소: %{{y:,.0f}}개<extra></extra>",
+                    )
+                )
+
+        fig.update_layout(
+            template="plotly_white",
+            height=650,
+            margin=dict(l=55, r=22, t=12, b=48),
+            font=dict(family="Arial, sans-serif", color="#234332", size=12),
+            xaxis=dict(showgrid=True, gridcolor="#edf2e9", zeroline=False),
+            yaxis=dict(showgrid=True, gridcolor="#edf2e9", zeroline=False),
+            paper_bgcolor="#ffffff",
+            plot_bgcolor="#ffffff",
+            showlegend=False
+        )
+        return fig
+    def create_street_map(self, selected_district_code=None, focus=None):
+        """OSM 지도: 선택 구 확대 및 해당 구의 정류소만 표시."""
+        import folium
+        import html
+        selected = self.districts.get(str(selected_district_code))
+        center = [37.5665, 126.9780]
+        zoom = 11
+        if selected is not None:
+            point = selected.geometry.representative_point()
+            center = list(focus) if focus is not None else [point.y, point.x]
+            zoom = 17
+        m = folium.Map(location=center, zoom_start=zoom,
+                       tiles='OpenStreetMap', control_scale=True)
+        for row in self.prepare_map_data().itertuples(index=False):
+            p = row.geometry.representative_point()
+            folium.Marker([p.y, p.x], icon=folium.DivIcon(
+                icon_size=(90, 24), icon_anchor=(45, 12),
+                html=f'<div style="text-align:center;pointer-events:none;font:bold 14px sans-serif;color:#111;text-shadow:0 0 4px white,0 0 4px white;white-space:nowrap">{html.escape(row.district_name)}</div>'
+            ), interactive=False, keyboard=False).add_to(m)
+        if selected is not None:
+            # SVG: 녹색 표지판, 흰색 버스, 기둥과 받침대.
+            icon = """<svg xmlns="http://www.w3.org/2000/svg" width="30" height="43" viewBox="0 0 30 43"><ellipse cx="15" cy="40" rx="8" ry="2.5" fill="#064526"/><path d="M15 25V40" stroke="#064526" stroke-width="4"/><rect x="2" y="1" width="26" height="29" rx="6" fill="#064526"/><rect x="8" y="5" width="14" height="19" rx="4" fill="white"/><rect x="10" y="8" width="10" height="7" rx="1" fill="#064526"/><circle cx="11" cy="19" r="1.5" fill="#064526"/><circle cx="19" cy="19" r="1.5" fill="#064526"/><path d="M10 23v3M20 23v3" stroke="white" stroke-width="3"/></svg>"""
+            for stop in self.bus_stops:
+                if str(stop.district_code) != str(selected_district_code):
+                    continue
+                folium.Marker([stop.latitude, stop.longitude],
+                    icon=folium.DivIcon(html=icon, icon_size=(30,43), icon_anchor=(15,41), class_name='bus-stop-icon'),
+                    tooltip=html.escape(str(stop.stop_name)),
+                    popup=folium.Popup(f'{html.escape(str(stop.stop_name))}<br>ID: {html.escape(str(stop.stop_id))}', max_width=250)
+                ).add_to(m)
+        return m
+
+    def district_at(self, latitude, longitude):
+        """클릭 좌표가 포함된 실제 자치구 경계를 찾아 코드 반환."""
+        from shapely.geometry import Point
+        p = Point(float(longitude), float(latitude))
+        for code, district in self.districts.items():
+            if district.geometry.covers(p):
+                return str(code)
+        return None
