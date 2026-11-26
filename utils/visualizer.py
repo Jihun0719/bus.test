@@ -253,7 +253,7 @@ class Visualizer:
             showlegend=False
         )
         return fig
-    def create_street_map(self, selected_district_code=None, focus=None):
+    def create_street_map(self, selected_district_code=None, focus=None, selected_stop_id=None):
         """OSM 지도: 선택 구 확대 및 해당 구의 정류소만 표시."""
         import folium
         import html
@@ -278,10 +278,13 @@ class Visualizer:
             for stop in self.bus_stops:
                 if str(stop.district_code) != str(selected_district_code):
                     continue
+                highlighted = selected_stop_id is not None and str(stop.stop_id) == str(selected_stop_id)
+                if highlighted:
+                    folium.CircleMarker([stop.latitude, stop.longitude], radius=19, color="#e08b00", weight=4, fill=True, fill_opacity=0.25).add_to(m)
                 folium.Marker([stop.latitude, stop.longitude],
-                    icon=folium.DivIcon(html=icon, icon_size=(30,43), icon_anchor=(15,41), class_name='bus-stop-icon'),
+                    icon=folium.DivIcon(html=icon.replace("#064526", "#b66b00") if highlighted else icon, icon_size=(30,43), icon_anchor=(15,41), class_name='bus-stop-icon'),
                     tooltip=html.escape(str(stop.stop_name)),
-                    popup=folium.Popup(f'{html.escape(str(stop.stop_name))}<br>ID: {html.escape(str(stop.stop_id))}', max_width=250)
+                    popup=folium.Popup(f'{html.escape(str(stop.stop_name))}<br>ID: {html.escape(str(stop.stop_id))}', max_width=250, show=highlighted)
                 ).add_to(m)
         return m
 
