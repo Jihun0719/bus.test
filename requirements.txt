@@ -3,9 +3,9 @@ geopandas
 pyogrio
 shapely
 pytest
-streamlit
+streamlit==1.65.0
 plotly
 statsmodels
-
-folium>=0.16
-streamlit-folium>=0.25
+folium==1.0.0
+streamlit-folium==0.28.0
+branca==0.8.2
