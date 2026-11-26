@@ -42,7 +42,7 @@ st.markdown('''<style>
 .rrow span:last-child, .info strong {white-space: nowrap;}
 [data-testid="stButton"] button, [data-testid="stTextInput"] input {font-size: clamp(13px, .9vw, 18px);}
 [data-testid="stColumn"] {min-width: 0 !important;}
-iframe[title*="st_folium"] {width: 100% !important; height: clamp(520px, 76vh, 1100px) !important; display: block;}
+iframe[title*="st_folium"] {width: 100% !important; display: block;}
 @media (max-width: 1050px) {
   [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .right-panel):not(:has([data-testid="stHorizontalBlock"] .right-panel)) {flex-wrap: wrap !important;}
   [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .right-panel):not(:has([data-testid="stHorizontalBlock"] .right-panel)) > [data-testid="stColumn"] {flex: 1 1 100% !important; width: 100% !important;}
@@ -51,7 +51,6 @@ iframe[title*="st_folium"] {width: 100% !important; height: clamp(520px, 76vh, 1
   [data-testid="stHorizontalBlock"] {flex-wrap: wrap !important;}
   [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {flex: 1 1 100% !important; width: 100% !important;}
   [data-testid="stHorizontalBlock"]:has(.kpi):not(:has([data-testid="stHorizontalBlock"] .kpi)) > [data-testid="stColumn"] {flex: 1 1 45% !important; width: 45% !important;}
-  iframe[title*="st_folium"] {height: clamp(340px, 58vh, 600px) !important;}
   .block-container {padding-inline: 10px;}
 }
 
@@ -112,7 +111,7 @@ iframe[title*="st_folium"] {width: 100% !important; height: clamp(520px, 76vh, 1
 @media(max-width:1050px){.rank-stack{min-height:0;grid-template-rows:repeat(4,auto);}}
 
 /* Shared desktop body height; all three panels begin in the same row. */
-:root {--body-height:clamp(720px, 82vh, 1050px);}
+:root {--body-height:860px;}
 iframe[title*="st_folium"] {height:var(--body-height) !important;width:100% !important;}
 .detail,.right-panel {box-sizing:border-box;min-height:var(--body-height);display:flex;flex-direction:column;}
 .detail .info {flex:1;align-items:center;}
@@ -125,15 +124,14 @@ iframe[title*="st_folium"] {height:var(--body-height) !important;width:100% !imp
 [data-baseweb="popover"], [data-baseweb="popover"] *,
 [role="listbox"], [role="listbox"] *, [role="option"], [role="option"] * {background-color:#fff !important;color:#07552d !important;}
 [role="option"]:hover, [role="option"]:hover *, [role="option"][aria-selected="true"], [role="option"][aria-selected="true"] * {background-color:#eaf4e9 !important;}
-@media(max-width:1050px){.detail,.right-panel{min-height:0}.rank-stack{grid-template-rows:repeat(4,auto)} iframe[title*="st_folium"]{height:clamp(340px,65vh,720px) !important;}}
+@media(max-width:1050px){.detail,.right-panel{min-height:0}.rank-stack{grid-template-rows:repeat(4,auto)}}
 
 /* Equal explicit border-box heights, independent of iframe title. */
 @media (min-width:1051px) {
- :root {--body-height:clamp(860px, 90vh, 1200px);}
  .detail,.right-panel {height:var(--body-height);min-height:0;box-sizing:border-box;}
  .right-panel .rank-stack {flex:1 1 0;min-height:0;grid-template-rows:repeat(4,minmax(0,1fr));}
  .right-panel .rank {min-height:0;overflow:auto;}
- [data-testid="stCustomComponentV1"]:has(iframe), iframe[title*="st_folium"], iframe[title*="streamlit_folium"] {height:var(--body-height) !important;min-height:var(--body-height) !important;max-height:var(--body-height) !important;display:block;box-sizing:border-box;}
+ [data-testid="stColumn"]:has(iframe) iframe {height:var(--body-height) !important;min-height:var(--body-height) !important;max-height:var(--body-height) !important;display:block;box-sizing:border-box;}
 }
 </style>''', unsafe_allow_html=True)
 
@@ -201,7 +199,7 @@ with mapcol:
     selected=st.session_state.map_district
     street_map=v.create_street_map(selected, focus=st.session_state.get('map_focus'), selected_stop_id=st.session_state.get('selected_stop_id'))
     from branca.element import Element
-    street_map.get_root().header.add_child(Element('<style>html,body{height:100%;margin:0}.folium-map{height:100vh !important;}</style>'))
+    street_map.get_root().header.add_child(Element('<style>html,body{height:100%;margin:0}.folium-map{height:860px !important;}</style>'))
     event=st_folium(street_map,height=860,use_container_width=True,key=f'seoul-street-map-{st.session_state.map_revision}',returned_objects=['last_clicked'])
     click=event.get('last_clicked') if event else None
     if click:
